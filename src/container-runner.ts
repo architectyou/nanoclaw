@@ -11,6 +11,8 @@ import {
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
   DATA_DIR,
+  GLM_PROXY_ENABLED,
+  GLM_PROXY_PORT,
   GROUPS_DIR,
   IDLE_TIMEOUT,
   ONECLI_URL,
@@ -233,19 +235,33 @@ async function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // OneCLI gateway handles credential injection — containers never see real secrets.
-  // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
-  const onecliApplied = await onecli.applyContainerConfig(args, {
-    addHostMapping: false, // Nanoclaw already handles host gateway
-    agent: agentIdentifier,
-  });
-  if (onecliApplied) {
-    logger.info({ containerName }, 'OneCLI gateway config applied');
-  } else {
-    logger.warn(
-      { containerName },
-      'OneCLI gateway not reachable — container will have no credentials',
+  // GLM Proxy mode: point the container at the local proxy instead of OneCLI.
+  // The proxy translates Anthropic Messages API to OpenAI format for GLM-5.
+  if (GLM_PROXY_ENABLED) {
+    args.push(
+      '-e',
+      `ANTHROPIC_BASE_URL=http://host.docker.internal:${GLM_PROXY_PORT}`,
     );
+    args.push('-e', 'ANTHROPIC_API_KEY=glm-proxy');
+    logger.info(
+      { containerName, port: GLM_PROXY_PORT },
+      'GLM proxy mode — container will use local proxy',
+    );
+  } else {
+    // OneCLI gateway handles credential injection — containers never see real secrets.
+    // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
+    const onecliApplied = await onecli.applyContainerConfig(args, {
+      addHostMapping: false, // Nanoclaw already handles host gateway
+      agent: agentIdentifier,
+    });
+    if (onecliApplied) {
+      logger.info({ containerName }, 'OneCLI gateway config applied');
+    } else {
+      logger.warn(
+        { containerName },
+        'OneCLI gateway not reachable — container will have no credentials',
+      );
+    }
   }
 
   // Runtime-specific args for host gateway resolution

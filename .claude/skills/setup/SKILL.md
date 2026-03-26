@@ -147,23 +147,29 @@ Run `npx tsx setup/index.ts --step container -- --runtime <chosen>` and parse th
 
 **If TEST_OK=false but BUILD_OK=true:** The image built but won't run. Check logs — common cause is runtime not fully started. Wait a moment and retry the test.
 
-## 4. Anthropic Credentials via OneCLI
+## 4. LLM Credentials
 
-NanoClaw uses OneCLI to manage credentials — API keys are never stored in `.env` or exposed to containers. The OneCLI gateway injects them at request time.
+NanoClaw supports three credential options. AskUserQuestion: Which LLM provider do you want to use?
 
-Check if a secret already exists:
+1. **Claude subscription (Pro/Max) via OneCLI** — description: "Uses your existing Claude Pro or Max subscription. Credentials managed by OneCLI gateway."
+2. **Anthropic API key via OneCLI** — description: "Pay-per-use API key from console.anthropic.com. Credentials managed by OneCLI gateway."
+3. **ZhipuAI GLM Proxy** — description: "Uses ZhipuAI GLM models (GLM-5, GLM-4.7, etc.) via a local proxy. Requires a ZhipuAI API key or Coding Plan subscription."
+
+### Option 1: Claude subscription (Pro/Max)
+
+Check if OneCLI is installed. If not, install it:
 ```bash
-onecli secrets list
+curl -fsSL onecli.sh/install | sh
+curl -fsSL onecli.sh/cli/install | sh
+onecli config set api-host http://127.0.0.1:10254
 ```
 
-If an Anthropic secret is listed, confirm with user: keep or reconfigure? If keeping, skip to step 5.
+Ensure `.env` has the OneCLI URL:
+```bash
+grep -q 'ONECLI_URL' .env 2>/dev/null || echo 'ONECLI_URL=http://127.0.0.1:10254' >> .env
+```
 
-AskUserQuestion: Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
-
-1. **Claude subscription (Pro/Max)** — description: "Uses your existing Claude Pro or Max subscription. You'll run `claude setup-token` in another terminal to get your token."
-2. **Anthropic API key** — description: "Pay-per-use API key from console.anthropic.com."
-
-### Subscription path
+Check if a secret already exists: `onecli secrets list`. If an Anthropic secret is listed, confirm with user: keep or reconfigure? If keeping, skip to step 5.
 
 Tell the user to run `claude setup-token` in another terminal and copy the token it outputs. Do NOT collect the token in chat.
 
@@ -172,22 +178,70 @@ Once they have the token, they register it with OneCLI. AskUserQuestion with two
 1. **Dashboard** — description: "Best if you have a browser on this machine. Open http://127.0.0.1:10254 and add the secret in the UI. Use type 'anthropic' and paste your token as the value."
 2. **CLI** — description: "Best for remote/headless servers. Run: `onecli secrets create --name Anthropic --type anthropic --value YOUR_TOKEN --host-pattern api.anthropic.com`"
 
-### API key path
+### Option 2: Anthropic API key
 
-Tell the user to get an API key from https://console.anthropic.com/settings/keys if they don't have one.
+Same OneCLI setup as option 1. Tell the user to get an API key from https://console.anthropic.com/settings/keys if they don't have one.
 
 Then AskUserQuestion with two options:
 
 1. **Dashboard** — description: "Best if you have a browser on this machine. Open http://127.0.0.1:10254 and add the secret in the UI."
 2. **CLI** — description: "Best for remote/headless servers. Run: `onecli secrets create --name Anthropic --type anthropic --value YOUR_KEY --host-pattern api.anthropic.com`"
 
-### After either path
+### After OneCLI options (1 or 2)
 
 Ask them to let you know when done.
 
 **If the user's response happens to contain a token or key** (starts with `sk-ant-`): handle it gracefully — run the `onecli secrets create` command with that value on their behalf.
 
 **After user confirms:** verify with `onecli secrets list` that an Anthropic secret exists. If not, ask again.
+
+### Option 3: ZhipuAI GLM Proxy
+
+This runs a local proxy that translates Anthropic API requests to OpenAI format for ZhipuAI GLM models. OneCLI is not required for this option.
+
+AskUserQuestion: Enter your ZhipuAI API key (from https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys):
+
+After receiving the key, configure `.env`:
+```bash
+# Remove OneCLI URL if present (not needed for GLM proxy)
+# Add GLM proxy settings
+grep -q 'GLM_PROXY_ENABLED' .env 2>/dev/null || cat >> .env << 'EOF'
+
+# GLM Proxy
+GLM_PROXY_ENABLED=true
+GLM_PROXY_PORT=4000
+EOF
+```
+
+Write the API key and model to `.env` (use sed to update if already present, append if not):
+```bash
+grep -q 'ZHIPU_API_KEY' .env && sed -i '' 's/^ZHIPU_API_KEY=.*/ZHIPU_API_KEY=<key>/' .env || echo 'ZHIPU_API_KEY=<key>' >> .env
+```
+
+AskUserQuestion: Which GLM model do you want to use?
+1. **GLM-5** — description: "Flagship model, best for complex/agentic coding tasks. Requires Coding Plan subscription."
+2. **GLM-4.7** — description: "Strong general model with 204K context."
+3. **Other** — description: "Enter a custom model name."
+
+Set the model in `.env`:
+```bash
+grep -q 'ZHIPU_MODEL' .env && sed -i '' 's/^ZHIPU_MODEL=.*/ZHIPU_MODEL=<model>/' .env || echo 'ZHIPU_MODEL=<model>' >> .env
+```
+
+Install proxy dependencies and verify:
+```bash
+cd proxy && npm install && cd ..
+```
+
+Test the proxy briefly:
+```bash
+cd proxy && timeout 5 npx tsx src/index.ts &
+sleep 2
+curl -s http://localhost:4000/health
+kill %1 2>/dev/null
+```
+
+If health check returns `{"status":"ok"}`, the proxy is ready. It will be started automatically as part of the service in step 7.
 
 ## 5. Set Up Channels
 

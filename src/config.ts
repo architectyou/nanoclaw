@@ -10,6 +10,8 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ONECLI_URL',
   'TZ',
+  'GLM_PROXY_PORT',
+  'GLM_PROXY_ENABLED',
 ]);
 
 export const ASSISTANT_NAME =
@@ -54,6 +56,14 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
 export const ONECLI_URL =
   process.env.ONECLI_URL || envConfig.ONECLI_URL || 'http://localhost:10254';
 export const IPC_POLL_INTERVAL = 1000;
+
+// GLM Proxy: when enabled, containers use the local proxy instead of OneCLI for LLM calls
+export const GLM_PROXY_ENABLED =
+  (process.env.GLM_PROXY_ENABLED || envConfig.GLM_PROXY_ENABLED) === 'true';
+export const GLM_PROXY_PORT = parseInt(
+  process.env.GLM_PROXY_PORT || envConfig.GLM_PROXY_PORT || '4000',
+  10,
+);
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
 export const MAX_CONCURRENT_CONTAINERS = Math.max(
   1,

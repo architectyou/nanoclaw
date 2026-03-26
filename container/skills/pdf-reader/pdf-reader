@@ -1,0 +1,46 @@
+#!/bin/bash
+# pdf-reader: Extract text from PDF files using pdftotext (poppler-utils)
+set -euo pipefail
+
+usage() {
+  echo "Usage:"
+  echo "  pdf-reader <file.pdf> [pages]    Extract text (e.g., pdf-reader doc.pdf 1-5)"
+  echo "  pdf-reader fetch <url>           Download PDF from URL and extract text"
+  echo "  pdf-reader info <file.pdf>       Show PDF metadata"
+  exit 1
+}
+
+[ $# -lt 1 ] && usage
+
+case "$1" in
+  fetch)
+    [ $# -lt 2 ] && { echo "Error: URL required"; usage; }
+    URL="$2"
+    FILENAME=$(basename "$URL" | sed 's/[?#].*//')
+    [ "${FILENAME##*.}" != "pdf" ] && FILENAME="${FILENAME}.pdf"
+    echo "Downloading: $URL" >&2
+    curl -fsSL -o "$FILENAME" "$URL"
+    echo "Saved to: $FILENAME" >&2
+    pdftotext "$FILENAME" -
+    ;;
+  info)
+    [ $# -lt 2 ] && { echo "Error: PDF file required"; usage; }
+    pdfinfo "$2"
+    ;;
+  -h|--help)
+    usage
+    ;;
+  *)
+    FILE="$1"
+    [ ! -f "$FILE" ] && { echo "Error: File not found: $FILE"; exit 1; }
+    if [ $# -ge 2 ]; then
+      # Page range: e.g., "1-5" → -f 1 -l 5
+      RANGE="$2"
+      FIRST=$(echo "$RANGE" | cut -d- -f1)
+      LAST=$(echo "$RANGE" | cut -d- -f2)
+      pdftotext -f "$FIRST" -l "$LAST" "$FILE" -
+    else
+      pdftotext "$FILE" -
+    fi
+    ;;
+esac

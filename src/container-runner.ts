@@ -141,8 +141,8 @@ function buildVolumeMounts(
   if (NOTION_TOKEN) {
     settings.mcpServers = {
       notion: {
-        command: 'npx',
-        args: ['-y', '@notionhq/notion-mcp-server'],
+        command: 'notion-mcp-server',
+        args: [],
         env: { NOTION_TOKEN },
       },
     };
@@ -235,6 +235,11 @@ async function buildContainerArgs(
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Notion token for notion-upload script inside containers
+  if (NOTION_TOKEN) {
+    args.push('-e', `NOTION_TOKEN=${NOTION_TOKEN}`);
+  }
 
   // GLM Proxy mode: point the container at the local proxy instead of OneCLI.
   // The proxy translates Anthropic Messages API to OpenAI format for GLM-5.

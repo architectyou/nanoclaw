@@ -1,7 +1,7 @@
 ---
 name: journal-club
 description: Prepare journal club presentations using multi-agent orchestration. Use when user asks to prepare a journal club, literature review, or paper presentation. Triggers on "journal club", "논문 리뷰", "발표 준비", "paper review".
-allowed-tools: Agent, Bash(agent-browser:*), Bash(pdf-reader:*)
+allowed-tools: Agent, Bash(agent-browser:*), Bash(pdf-reader:*), Bash(notion-upload:*)
 ---
 
 # Journal Club Multi-Agent Workflow
@@ -275,16 +275,23 @@ After Agent 4 completes:
 
 ### Step 6: Notion upload (optional)
 
-If the user requests Notion upload, use the official Notion MCP tools (`mcp__notion__*`).
+If the user requests Notion upload, use the `notion-upload` command (available in the skill directory).
 
-1. `mcp__notion__search` — find the target database or parent page
-2. `mcp__notion__create_page` — create a new page titled "Journal Club: {topic} ({date})"
-3. `mcp__notion__append_block_children` — add content blocks section by section
+```bash
+# Upload presentation to Notion (creates a new page in workspace root)
+notion-upload /workspace/group/journal-club/{topic_slug}/presentation.md "Journal Club: {topic}"
 
-Content in Notion must be in **English**.
+# Or search for a parent page first
+notion-upload search "Journal Club"
+# Then upload under that page
+notion-upload /workspace/group/journal-club/{topic_slug}/presentation.md "Journal Club: {topic}" <parent_page_id>
+```
 
-If Notion MCP tools are not available, inform the user:
-> "Notion MCP가 설정되지 않았습니다. .env에 NOTION_TOKEN을 추가하면 사용할 수 있습니다."
+The command reads NOTION_TOKEN from the environment (already configured) and uploads the markdown file as a Notion page with proper formatting (headings, lists, code blocks, dividers).
+
+Content in Notion must be in **English**. If the presentation.md is in Korean, translate the key sections before uploading.
+
+If upload fails, inform the user with the error message and suggest manual copy-paste as fallback.
 
 ## File structure
 

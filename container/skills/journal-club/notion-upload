@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""
+notion-upload: Upload a markdown file to Notion as a new page.
+
+Usage:
+  notion-upload <file.md> [title] [parent_page_id]
+  notion-upload search <query>
+
+Requires NOTION_TOKEN environment variable.
+"""
+import json
+import os
+import re
+import sys
+import urllib.request
+import urllib.error
+
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
+NOTION_API = "https://api.notion.com/v1"
+HEADERS = {
+    "Authorization": f"Bearer {NOTION_TOKEN}",
+    "Notion-Version": "2022-06-28",
+    "Content-Type": "application/json",
+}
+
+
+def api_request(method, path, data=None):
+    body = json.dumps(data).encode() if data else None
+    req = urllib.request.Request(f"{NOTION_API}{path}", data=body, headers=HEADERS, method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        err = e.read().decode()
+        print(f"Error {e.code}: {err}", file=sys.stderr)
+        sys.exit(1)
+
+
+def rich_text(text):
+    # Notion limits rich_text to 2000 chars per item
+    chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
+    return [{"type": "text", "text": {"content": c}} for c in chunks]
+
+
+def md_to_blocks(content):
+    """Convert markdown to Notion blocks. Simple but effective."""
+    blocks = []
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Code block
+        if line.startswith("```"):
+            lang = line[3:].strip() or "plain text"
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].startswith("```"):
+                code_lines.append(lines[i])
+                i += 1
+            code = "\n".join(code_lines)
+            if code.strip():
+                blocks.append({
+                    "object": "block", "type": "code",
+                    "code": {"rich_text": rich_text(code[:2000]), "language": lang}
+                })
+            i += 1
+            continue
+
+        # Headings
+        if line.startswith("### "):
+            blocks.append({
+                "object": "block", "type": "heading_3",
+                "heading_3": {"rich_text": rich_text(line[4:].strip())}
+            })
+        elif line.startswith("## "):
+            blocks.append({
+                "object": "block", "type": "heading_2",
+                "heading_2": {"rich_text": rich_text(line[3:].strip())}
+            })
+        elif line.startswith("# "):
+            blocks.append({
+                "object": "block", "type": "heading_1",
+                "heading_1": {"rich_text": rich_text(line[2:].strip())}
+            })
+        # Bullet list
+        elif line.startswith("- ") or line.startswith("* "):
+            blocks.append({
+                "object": "block", "type": "bulleted_list_item",
+                "bulleted_list_item": {"rich_text": rich_text(line[2:].strip())}
+            })
+        # Numbered list
+        elif re.match(r"^\d+\.\s", line):
+            text = re.sub(r"^\d+\.\s", "", line).strip()
+            blocks.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": rich_text(text)}
+            })
+        # Table (convert to code block for simplicity)
+        elif line.startswith("|"):
+            table_lines = [line]
+            i += 1
+            while i < len(lines) and lines[i].startswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            blocks.append({
+                "object": "block", "type": "code",
+                "code": {"rich_text": rich_text("\n".join(table_lines)), "language": "plain text"}
+            })
+            continue
+        # Divider
+        elif line.strip() == "---":
+            blocks.append({"object": "block", "type": "divider", "divider": {}})
+        # Paragraph
+        elif line.strip():
+            blocks.append({
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": rich_text(line.strip())}
+            })
+        # Empty line → skip
+
+        i += 1
+
+    return blocks
+
+
+def search(query):
+    result = api_request("POST", "/search", {"query": query, "page_size": 5})
+    for r in result.get("results", []):
+        title = ""
+        if r["object"] == "page":
+            props = r.get("properties", {})
+            for v in props.values():
+                if v.get("type") == "title":
+                    title = "".join(t["plain_text"] for t in v.get("title", []))
+                    break
+        elif r["object"] == "database":
+            title = "".join(t["plain_text"] for t in r.get("title", []))
+        print(f"  [{r['object']}] {title or '(untitled)'}")
+        print(f"    ID: {r['id']}")
+    if not result.get("results"):
+        print("  No results found.")
+
+
+def upload(filepath, title=None, parent_id=None):
+    content = open(filepath).read()
+    if not title:
+        title = os.path.basename(filepath).replace(".md", "").replace("_", " ").title()
+
+    blocks = md_to_blocks(content)
+
+    # Create page
+    page_data = {
+        "properties": {
+            "title": {"title": [{"text": {"content": title}}]}
+        },
+        "children": blocks[:100]  # Notion limit: 100 blocks per request
+    }
+
+    if parent_id:
+        # Check if parent is a database or page
+        page_data["parent"] = {"page_id": parent_id}
+    else:
+        page_data["parent"] = {"type": "workspace", "workspace": True}
+
+    result = api_request("POST", "/pages", page_data)
+    page_id = result["id"]
+    page_url = result.get("url", f"https://notion.so/{page_id.replace('-', '')}")
+    print(f"Created: {page_url}")
+
+    # If more than 100 blocks, append the rest in batches
+    remaining = blocks[100:]
+    while remaining:
+        batch = remaining[:100]
+        remaining = remaining[100:]
+        api_request("PATCH", f"/blocks/{page_id}/children", {"children": batch})
+        print(f"  Appended {len(batch)} more blocks")
+
+    print(f"Done! {len(blocks)} blocks total.")
+    return page_url
+
+
+if __name__ == "__main__":
+    if not NOTION_TOKEN:
+        print("Error: NOTION_TOKEN not set", file=sys.stderr)
+        sys.exit(1)
+
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    if sys.argv[1] == "search":
+        query = sys.argv[2] if len(sys.argv) > 2 else ""
+        search(query)
+    else:
+        filepath = sys.argv[1]
+        title = sys.argv[2] if len(sys.argv) > 2 else None
+        parent_id = sys.argv[3] if len(sys.argv) > 3 else None
+        upload(filepath, title, parent_id)

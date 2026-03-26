@@ -159,14 +159,16 @@ After launching all agents, inform the user that preparation is in progress. Whe
 
 ### Step 4: Notion upload (optional)
 
-If the user requests Notion upload and Notion MCP tools are available:
+If the user requests Notion upload, use the official Notion MCP tools (available as `mcp__notion__*`).
 
-```bash
-# Check if Notion MCP is configured
-which notion-upload 2>/dev/null || echo "Notion MCP not configured"
-```
+To create a Notion page with the presentation content:
 
-If available, use the `notion-upload` tool to create a new page under the user's specified database.
+1. Use `mcp__notion__search` to find the target database or page
+2. Use `mcp__notion__create_page` to create a new page with the presentation content
+3. Use `mcp__notion__append_block_children` to add content blocks (headings, paragraphs, code, lists)
+
+If Notion MCP tools are not available (NOTION_TOKEN not configured), inform the user:
+> "Notion 연동이 설정되지 않았습니다. .env에 NOTION_TOKEN을 추가하면 사용할 수 있습니다."
 
 ## File structure
 

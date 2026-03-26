@@ -6,7 +6,7 @@ allowed-tools: Agent, Bash(agent-browser:*), Bash(pdf-reader:*)
 
 # Journal Club Multi-Agent Workflow
 
-Prepare journal club presentations by orchestrating 4 specialized subagents in parallel. Each agent handles a distinct phase of preparation, and results are synthesized into a final deliverable.
+Prepare journal club presentations by orchestrating 4 specialized subagents. Research runs first to gather materials, then analysis and experiments run in parallel, and finally the insight writer synthesizes everything.
 
 ## Trigger
 
@@ -18,13 +18,47 @@ Activate when the user provides a **topic** for journal club preparation. If no 
 
 Extract from the user's message:
 - **Topic**: The research subject (required)
-- **Paper count**: How many papers to cover (default: 3-5)
+- **Topic type**: Classify as `academic` or `dev` (see Source Strategy below)
+- **Paper count**: How many papers/articles to cover (default: 5-7)
 - **Output format**: Notion page, markdown file, or message (default: markdown file)
-- **Language**: Korean or English (default: match user's language)
 
-### Step 2: Launch 4 subagents in parallel
+### Source Strategy
 
-You MUST launch all 4 agents in a single response using the Agent tool. Do NOT run them sequentially.
+Determine the topic type and adjust research sources accordingly:
+
+**Academic topics** (ML papers, biology, physics, math, etc.):
+- Primary: arXiv, Google Scholar, Semantic Scholar, PubMed
+- Target: peer-reviewed papers from top venues (NeurIPS, ICML, ICLR, ACL, EMNLP, CVPR, Nature, Science)
+- Download PDFs when available via arXiv
+
+**Dev/engineering topics** (frameworks, tools, architecture patterns, etc.):
+- Primary: Google Search, Medium, dev.to, Hacker News, official docs, GitHub repos
+- Secondary: arXiv for any related technical papers
+- Target: blog posts, tutorials, official announcements, benchmark comparisons
+
+**Mixed topics** (e.g., "LLM Agents" — both academic and practical):
+- Use BOTH strategies. Gather papers AND blog posts/tutorials.
+
+### Step 1.5: Check for existing progress (resume support)
+
+Before launching any agents, check if previous results already exist:
+
+```bash
+ls /workspace/group/journal-club/{topic_slug}/*.md 2>/dev/null
+```
+
+**Resume logic:**
+- If `research.md` exists AND contains "RESEARCH COMPLETE" → skip Phase 1, go to Phase 2
+- If `analysis.md` exists AND `experiment_results.md` exists → skip Phase 2, go to Phase 3
+- If `presentation.md` exists AND has more than 50 lines → ALL DONE, just send the result to the user
+- Otherwise → start from the earliest missing phase
+
+This allows the workflow to resume after timeout or interruption without redoing completed work.
+
+### Step 2: Launch Research Agent FIRST (Phase 1)
+
+The Research Agent MUST complete before other agents start. Do NOT launch all agents at once.
+Skip this step if research.md already exists with "RESEARCH COMPLETE" marker.
 
 #### Agent 1: Research Agent (자료조사)
 
@@ -32,23 +66,60 @@ You MUST launch all 4 agents in a single response using the Agent tool. Do NOT r
 prompt: |
   You are a Research Agent for journal club preparation.
   Topic: "{topic}"
+  Topic type: {academic|dev|mixed}
 
-  Your task:
-  1. Use agent-browser to search Google Scholar, arXiv, Semantic Scholar for recent papers (last 2 years)
-  2. Find {paper_count} highly relevant and impactful papers
-  3. For each paper, collect:
+  IMPORTANT: You must gather SUFFICIENT materials. Do not stop at 2-3 sources.
+  Target: {paper_count} high-quality sources minimum.
+
+  ## For academic topics:
+  1. Use agent-browser to search arXiv (arxiv.org/search), Google Scholar, Semantic Scholar
+  2. Find {paper_count}+ highly relevant papers (last 2 years priority, include seminal older works)
+  3. For each paper:
      - Title, authors, year, venue
      - arXiv/DOI link
-     - Abstract
+     - Abstract (copy full abstract)
      - Citation count if available
-  4. If PDFs are accessible, download them using: pdf-reader fetch <url>
-  5. Save all findings to /workspace/group/journal-club/{topic_slug}/research.md
+  4. Download PDFs: pdf-reader fetch <arxiv_pdf_url>
+  5. Prioritize: top venues > high citations > recency
 
-  Prioritize papers from top venues (NeurIPS, ICML, ICLR, ACL, EMNLP, Nature, Science).
-  Include a mix of seminal works and recent advances.
+  ## For dev topics:
+  1. Use agent-browser to search Google, Medium, dev.to, Hacker News
+  2. Find {paper_count}+ high-quality articles, blog posts, official docs
+  3. For each source:
+     - Title, author/org, date, URL
+     - Key points summary (2-3 sentences)
+     - Type: blog/tutorial/docs/benchmark/announcement
+  4. Also check if any arXiv papers exist on the topic
 
-description: "Research papers on {topic}"
+  ## For mixed topics:
+  - Do BOTH of the above. Gather academic papers AND practical articles.
+
+  ## Quality check:
+  - If you found fewer than {paper_count} sources, keep searching with different queries
+  - Try at least 3 different search queries
+  - Include diverse perspectives (not all from the same group/company)
+
+  ## Output:
+  Create /workspace/group/journal-club/{topic_slug}/research.md with ALL findings.
+  Format each entry clearly with title, link, abstract/summary, and metadata.
+  End the file with: "---\nRESEARCH COMPLETE: {N} sources found\n---"
+
+description: "Research materials on {topic}"
 ```
+
+### Step 3: Verify research output, then launch Phase 2
+
+Skip Phase 2 if both analysis.md and experiment_results.md already exist.
+
+After Agent 1 completes (or was skipped), verify the output:
+
+```bash
+cat /workspace/group/journal-club/{topic_slug}/research.md | tail -5
+```
+
+If research.md exists and contains "RESEARCH COMPLETE", launch Agents 2 and 3 **in parallel** (in a single response).
+
+If research.md is missing or incomplete, re-run Agent 1 with adjusted queries.
 
 #### Agent 2: Paper Reader Agent (논문 분석)
 
@@ -57,20 +128,30 @@ prompt: |
   You are a Paper Reader Agent for journal club preparation.
   Topic: "{topic}"
 
-  Your task:
-  1. Wait for /workspace/group/journal-club/{topic_slug}/research.md to appear (check every 5 seconds, timeout after 120 seconds)
-  2. Read the research findings
-  3. For each paper found:
-     - If PDF exists in the directory, use pdf-reader to extract text
-     - Analyze: Problem statement, methodology, key innovation, experimental setup, main results, limitations
-     - Rate relevance to the topic (high/medium/low)
-  4. Create a comparative analysis table
-  5. Save analysis to /workspace/group/journal-club/{topic_slug}/analysis.md
+  Read /workspace/group/journal-club/{topic_slug}/research.md FIRST.
+
+  For each source listed:
+  1. If PDF files exist in the directory, use: pdf-reader <filename>.pdf
+  2. If no PDF, use agent-browser to visit the source URL and extract key content
+  3. Analyze each source:
+     - Problem statement / motivation
+     - Methodology / approach
+     - Key innovation (what's new?)
+     - Results / evidence
+     - Limitations / weaknesses
+     - Rate relevance: high / medium / low
+  4. Create a comparative analysis:
+     - How do approaches differ?
+     - What are the trade-offs?
+     - Where do authors agree/disagree?
+     - Evolution of ideas over time
 
   Focus on understanding WHY each approach works, not just WHAT it does.
-  Identify connections and contradictions between papers.
+  Identify connections and contradictions between sources.
 
-description: "Analyze papers on {topic}"
+  Save to /workspace/group/journal-club/{topic_slug}/analysis.md
+
+description: "Analyze sources on {topic}"
 ```
 
 #### Agent 3: Experiment Agent (실험)
@@ -80,22 +161,33 @@ prompt: |
   You are an Experiment Agent for journal club preparation.
   Topic: "{topic}"
 
-  Your task:
-  1. Wait for /workspace/group/journal-club/{topic_slug}/research.md to appear (check every 5 seconds, timeout after 120 seconds)
-  2. Read the research findings to understand the key techniques
-  3. Write practical, runnable code that demonstrates the core concepts:
-     - Simple reproduction or demonstration of key ideas
-     - Comparison between baseline and proposed methods
-     - Clear comments explaining each step
-  4. Run the code and capture results (use Python, keep dependencies minimal)
-  5. Save code to /workspace/group/journal-club/{topic_slug}/experiments/
-  6. Save results summary to /workspace/group/journal-club/{topic_slug}/experiment_results.md
+  Read /workspace/group/journal-club/{topic_slug}/research.md FIRST.
 
-  Keep experiments simple and illustrative — this is for a presentation, not a full reproduction.
-  If the technique requires large compute, create a toy example that shows the principle.
+  Based on the research findings:
+  1. Identify 2-3 key techniques or concepts that can be demonstrated with code
+  2. Write practical, runnable Python code:
+     - Simple demonstrations of core ideas
+     - Comparison between baseline and proposed methods if applicable
+     - Clear comments explaining each step
+     - Use standard libraries (numpy, matplotlib, requests) — avoid heavy dependencies
+  3. Run the code and capture output/results
+  4. If the technique requires large compute, create a toy example showing the principle
+  5. Create visualizations if meaningful (save as .png)
+
+  Save code to /workspace/group/journal-club/{topic_slug}/experiments/
+  Save results summary to /workspace/group/journal-club/{topic_slug}/experiment_results.md
+
+  If the topic is purely theoretical or not code-demonstrable, write a detailed
+  walkthrough example instead (step-by-step trace of the algorithm/method).
 
 description: "Run experiments for {topic}"
 ```
+
+### Step 4: Wait for Phase 2, then launch Insight Writer (Phase 3)
+
+Skip Phase 3 if presentation.md already exists with more than 50 lines.
+
+After BOTH Agent 2 and Agent 3 complete (or were skipped), launch Agent 4.
 
 #### Agent 4: Insight Writer Agent (인사이트 정리)
 
@@ -103,95 +195,142 @@ description: "Run experiments for {topic}"
 prompt: |
   You are an Insight Writer Agent for journal club preparation.
   Topic: "{topic}"
-  Language: {language}
 
-  Your task:
-  1. Wait for these files to appear (check every 10 seconds, timeout after 300 seconds):
-     - /workspace/group/journal-club/{topic_slug}/analysis.md
-     - /workspace/group/journal-club/{topic_slug}/experiment_results.md
-     (Start writing the introduction while waiting)
-  2. Synthesize all findings into a presentation document
-  3. Structure:
+  IMPORTANT: Write ALL content in ENGLISH. The final document must be in English.
 
-     ## 1. Introduction (왜 이 주제인가?)
-     - Research motivation and importance
-     - Current challenges in the field
+  Read these files:
+  - /workspace/group/journal-club/{topic_slug}/research.md
+  - /workspace/group/journal-club/{topic_slug}/analysis.md
+  - /workspace/group/journal-club/{topic_slug}/experiment_results.md
 
-     ## 2. Paper Overview (논문 요약)
-     - Summary table of all papers
-     - Timeline of developments
+  Synthesize everything into a comprehensive presentation document.
 
-     ## 3. Deep Dive (핵심 분석)
-     - Methodology comparison
-     - Key innovations explained simply
-     - Figures/diagrams described in text (for later creation)
+  ## Structure:
 
-     ## 4. Experimental Insights (실험 결과)
-     - What experiments showed
-     - Code snippets for demonstration
+  # Journal Club: {topic}
+  Date: {today's date}
 
-     ## 5. Critical Discussion (비판적 논의)
-     - Strengths and weaknesses of each approach
-     - What's missing in current research
-     - Potential future directions
+  ## 1. Introduction
+  - Why this topic matters now
+  - Current challenges and open problems
+  - Scope of this review
 
-     ## 6. Discussion Questions (토론 주제)
-     - 3-5 thought-provoking questions for group discussion
+  ## 2. Background & Context
+  - Key concepts the audience needs to know
+  - Historical context and evolution of ideas
 
-     ## 7. Key Takeaways (핵심 정리)
-     - 3-5 bullet points summarizing the most important insights
+  ## 3. Paper/Source Overview
+  - Summary table: Title | Authors/Source | Year | Key Contribution | Venue/Platform
+  - Timeline of developments
 
-  4. Save to /workspace/group/journal-club/{topic_slug}/presentation.md
+  ## 4. Deep Dive: Key Approaches
+  - For each major approach:
+    - Core idea (explain like teaching a colleague)
+    - How it works (methodology)
+    - Why it works (intuition)
+    - Results and evidence
+  - Comparison matrix of approaches
+
+  ## 5. Experimental Insights
+  - What our experiments/demonstrations showed
+  - Include relevant code snippets
+  - Key observations
+
+  ## 6. Critical Analysis
+  - Strengths and weaknesses of each approach
+  - Gaps in current research
+  - Contradictions or open debates
+  - Practical implications
+
+  ## 7. Future Directions
+  - Promising research directions
+  - Unsolved problems
+  - Potential applications
+
+  ## 8. Discussion Questions
+  - 5 thought-provoking questions for group discussion
+  - Include both technical and high-level questions
+
+  ## 9. Key Takeaways
+  - 5-7 bullet points: the most important things to remember
+
+  ## References
+  - Full list with links
+
+  Save to /workspace/group/journal-club/{topic_slug}/presentation.md
 
 description: "Write presentation for {topic}"
 ```
 
-### Step 3: Monitor and synthesize
+### Step 5: Deliver results
 
-After launching all agents, inform the user that preparation is in progress. When agents complete:
+After Agent 4 completes:
 
 1. Read `/workspace/group/journal-club/{topic_slug}/presentation.md`
-2. Send the final presentation content to the user
+2. Send the full presentation content to the user
 3. Offer follow-up actions:
-   - "Notion에 업로드할까요?" (if Notion MCP is available)
-   - "특정 섹션을 더 자세히 다룰까요?"
-   - "토론 질문을 더 추가할까요?"
+   - "Notion에 업로드할까요?"
+   - "특정 섹션을 더 깊이 다룰까요?"
+   - "추가 논문을 찾아볼까요?"
 
-### Step 4: Notion upload (optional)
+### Step 6: Notion upload (optional)
 
-If the user requests Notion upload, use the official Notion MCP tools (available as `mcp__notion__*`).
+If the user requests Notion upload, use the official Notion MCP tools (`mcp__notion__*`).
 
-To create a Notion page with the presentation content:
+1. `mcp__notion__search` — find the target database or parent page
+2. `mcp__notion__create_page` — create a new page titled "Journal Club: {topic} ({date})"
+3. `mcp__notion__append_block_children` — add content blocks section by section
 
-1. Use `mcp__notion__search` to find the target database or page
-2. Use `mcp__notion__create_page` to create a new page with the presentation content
-3. Use `mcp__notion__append_block_children` to add content blocks (headings, paragraphs, code, lists)
+Content in Notion must be in **English**.
 
-If Notion MCP tools are not available (NOTION_TOKEN not configured), inform the user:
-> "Notion 연동이 설정되지 않았습니다. .env에 NOTION_TOKEN을 추가하면 사용할 수 있습니다."
+If Notion MCP tools are not available, inform the user:
+> "Notion MCP가 설정되지 않았습니다. .env에 NOTION_TOKEN을 추가하면 사용할 수 있습니다."
 
 ## File structure
 
 ```
 /workspace/group/journal-club/{topic_slug}/
-├── research.md           (Agent 1 output)
-├── analysis.md           (Agent 2 output)
-├── experiment_results.md (Agent 3 output)
-├── experiments/          (Agent 3 code)
+├── research.md           (Phase 1: collected sources)
+├── analysis.md           (Phase 2: detailed analysis)
+├── experiment_results.md (Phase 2: experiment findings)
+├── experiments/          (Phase 2: code and outputs)
 │   ├── demo.py
 │   └── results/
-└── presentation.md       (Agent 4 final output)
+└── presentation.md       (Phase 3: final deliverable)
+```
+
+## Execution order
+
+```
+Phase 1:  [Research Agent]        ← runs alone, must complete first
+              │
+Phase 2:  [Paper Reader] + [Experiment Agent]  ← run in parallel
+              │                │
+Phase 3:  [Insight Writer]    ← runs after both Phase 2 agents complete
 ```
 
 ## Example usage
 
 User: "LLM reasoning 기법에 대해 journal club 준비해줘"
+→ Topic type: mixed (academic + dev)
+→ Search: arXiv + Google Scholar + Medium + blog posts
+→ Output: English presentation in markdown, Korean chat responses
 
-Response: Launch 4 agents, then deliver presentation.md content.
+User: "React Server Components에 대해 발표 준비해줘"
+→ Topic type: dev
+→ Search: official docs + blog posts + Medium + GitHub discussions
+→ Output: English presentation in markdown
+
+User: "Diffusion model for protein structure prediction 논문 리뷰"
+→ Topic type: academic
+→ Search: arXiv + PubMed + Google Scholar
+→ Output: English presentation in markdown
 
 ## Tips
 
-- If the topic is broad, ask the user to narrow it down
-- If papers require paid access, use arXiv preprints or open-access versions
-- For code experiments, prefer Python with standard libraries (numpy, matplotlib)
-- The presentation should be self-contained — readable without the original papers
+- If the topic is too broad, ask the user to narrow it down before starting
+- Academic topics: always try to get actual PDFs from arXiv
+- Dev topics: prioritize recent posts (tech moves fast)
+- The presentation must be self-contained — readable without the original sources
+- All Notion and presentation content in ENGLISH
+- Chat messages to the user can be in their language (Korean/English)

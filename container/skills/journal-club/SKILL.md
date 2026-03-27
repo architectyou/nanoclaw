@@ -203,59 +203,135 @@ prompt: |
   - /workspace/group/journal-club/{topic_slug}/analysis.md
   - /workspace/group/journal-club/{topic_slug}/experiment_results.md
 
-  Synthesize everything into a comprehensive presentation document.
+  Synthesize everything into a structured presentation document.
 
-  ## Structure:
+  ## FORMAT RULES (Notion-optimized markdown):
 
-  # Journal Club: {topic}
-  Date: {today's date}
+  Use this exact formatting convention for Notion callouts and toggles:
+  - Callouts: `> 💡 text` or `> ⚠️ text` or `> 🔑 text` (blockquote with emoji prefix)
+  - Toggles: `<details><summary>📝 Title</summary>content</details>`
+  - Use numbered H2 headings: `## 0. Motivation`, `## 1. Problem`, etc.
+  - Use H3 for subsections: `### 1.1 Subtitle`
+  - Bullet points for key ideas (concise, one idea per bullet)
+  - Tables for comparisons: `| Header | Header |`
+  - Horizontal rules `---` between major sections
+  - Bold for emphasis on key terms: `**term**`
+  - Include paper links inline: `Paper Title (year) : https://arxiv.org/abs/...`
 
-  ## 1. Introduction
-  - Why this topic matters now
-  - Current challenges and open problems
-  - Scope of this review
+  ## STRUCTURE:
 
-  ## 2. Background & Context
-  - Key concepts the audience needs to know
-  - Historical context and evolution of ideas
+  # {topic}
+  **Journal Club | {today's date}**
 
-  ## 3. Paper/Source Overview
-  - Summary table: Title | Authors/Source | Year | Key Contribution | Venue/Platform
-  - Timeline of developments
+  ---
 
-  ## 4. Deep Dive: Key Approaches
-  - For each major approach:
-    - Core idea (explain like teaching a colleague)
-    - How it works (methodology)
-    - Why it works (intuition)
-    - Results and evidence
-  - Comparison matrix of approaches
+  ## 0. Motivation
+  - Why this topic matters right now
+  - What gap or challenge drives this research
+  - What we hope to learn from this review
 
-  ## 5. Experimental Insights
-  - What our experiments/demonstrations showed
-  - Include relevant code snippets
-  - Key observations
+  > 🎯 One-sentence summary of the core question this journal club explores.
 
-  ## 6. Critical Analysis
-  - Strengths and weaknesses of each approach
-  - Gaps in current research
-  - Contradictions or open debates
-  - Practical implications
+  ---
 
-  ## 7. Future Directions
-  - Promising research directions
-  - Unsolved problems
-  - Potential applications
+  ## 1. Problem Statement
+  - What specific problems do current approaches face?
+  - Key limitations of existing methods (bullet each)
+  - Why these problems are hard
 
-  ## 8. Discussion Questions
-  - 5 thought-provoking questions for group discussion
-  - Include both technical and high-level questions
+  ---
 
-  ## 9. Key Takeaways
-  - 5-7 bullet points: the most important things to remember
+  ## 2. Approaches & Key Papers
+
+  ### 2.1 [First Approach/Paper Name]
+  - Core idea (one sentence)
+  - How it works (2-3 bullets)
+  - Key result: **metric or finding**
+  - Paper: Title (Year) : link
+
+  <details><summary>📝 Paper Summary</summary>
+
+  - Detailed methodology
+  - Experimental setup
+  - Strengths and limitations
+
+  </details>
+
+  ### 2.2 [Second Approach/Paper Name]
+  (same format)
+
+  ### 2.3 [Third Approach/Paper Name]
+  (same format)
+
+  (Continue for all papers/approaches)
+
+  ---
+
+  ## 3. Comparison
+
+  | Approach | Key Innovation | Strengths | Weaknesses | Performance |
+  |----------|---------------|-----------|------------|-------------|
+  | ...      | ...           | ...       | ...        | ...         |
+
+  > 🔑 Key insight from comparing these approaches.
+
+  ---
+
+  ## 4. Experimental Insights
+  - What our code demonstrations showed
+  - Include relevant code snippets in fenced code blocks
+  - Key observations from running experiments
+
+  > 💡 Most surprising or counterintuitive finding from experiments.
+
+  ---
+
+  ## 5. Critical Analysis
+  - Where authors agree / disagree
+  - What's missing in current research
+  - Open problems not yet addressed
+
+  > ⚠️ Major gap or concern that future work must address.
+
+  ---
+
+  ## 6. Next Steps & Future Directions
+  - Promising research directions (bullet each)
+  - Unsolved problems worth pursuing
+  - Practical applications
+
+  ---
+
+  ## 7. Discussion Questions
+  1. (Technical question about methodology)
+  2. (Question about practical implications)
+  3. (Question about limitations or failure modes)
+  4. (Broader question connecting to other fields)
+  5. (Forward-looking question about future impact)
+
+  ---
+
+  ## 8. Key Takeaways
+
+  > 🔑 **Takeaway 1:** ...
+  > 🔑 **Takeaway 2:** ...
+  > 🔑 **Takeaway 3:** ...
+  > 🔑 **Takeaway 4:** ...
+  > 🔑 **Takeaway 5:** ...
+
+  ---
 
   ## References
-  - Full list with links
+  - [1] Title — Authors (Year) — link
+  - [2] ...
+
+  ## TONE & STYLE:
+  - Write like explaining to a smart colleague, not a textbook
+  - Concise bullets over long paragraphs
+  - Every section should have actionable insights, not just summaries
+  - Use callout blocks (blockquotes with emoji) to highlight key insights
+  - Use toggle/details blocks for deep dives that readers can skip
+  - Bold key terms and findings for scannability
 
   Save to /workspace/group/journal-club/{topic_slug}/presentation.md
 

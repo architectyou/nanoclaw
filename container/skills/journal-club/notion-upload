@@ -42,10 +42,25 @@ def rich_text(text):
     return [{"type": "text", "text": {"content": c}} for c in chunks]
 
 
+CALLOUT_EMOJIS = {"💡", "⚠️", "🔑", "🎯", "📌", "✅", "❌", "🚀", "📝", "💬", "🔍"}
+
+
+def detect_callout_emoji(text):
+    """Check if text starts with a callout emoji."""
+    for emoji in CALLOUT_EMOJIS:
+        if text.startswith(emoji):
+            return emoji, text[len(emoji):].strip()
+    return None, text
+
+
 def md_to_blocks(content):
-    """Convert markdown to Notion blocks. Simple but effective."""
+    """Convert markdown to Notion blocks with callout, toggle, and table support."""
     blocks = []
     lines = content.split("\n")
+
+    # Add table of contents at the top
+    blocks.append({"object": "block", "type": "table_of_contents", "table_of_contents": {"color": "default"}})
+
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -63,6 +78,69 @@ def md_to_blocks(content):
                 blocks.append({
                     "object": "block", "type": "code",
                     "code": {"rich_text": rich_text(code[:2000]), "language": lang}
+                })
+            i += 1
+            continue
+
+        # HTML details/summary → Notion toggle block
+        if line.strip().startswith("<details>"):
+            summary_match = re.search(r"<summary>(.*?)</summary>", line)
+            if not summary_match and i + 1 < len(lines):
+                summary_match = re.search(r"<summary>(.*?)</summary>", lines[i + 1])
+                if summary_match:
+                    i += 1
+            summary_text = summary_match.group(1) if summary_match else "Details"
+            toggle_children = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("</details>"):
+                child_line = lines[i].strip()
+                if child_line.startswith("- "):
+                    toggle_children.append({
+                        "object": "block", "type": "bulleted_list_item",
+                        "bulleted_list_item": {"rich_text": rich_text(child_line[2:])}
+                    })
+                elif child_line:
+                    toggle_children.append({
+                        "object": "block", "type": "paragraph",
+                        "paragraph": {"rich_text": rich_text(child_line)}
+                    })
+                i += 1
+            blocks.append({
+                "object": "block", "type": "toggle",
+                "toggle": {"rich_text": rich_text(summary_text), "children": toggle_children[:100]}
+            })
+            i += 1
+            continue
+
+        # Blockquote → callout (with emoji detection)
+        if line.startswith("> "):
+            quote_text = line[2:].strip()
+            emoji, clean_text = detect_callout_emoji(quote_text)
+            if emoji:
+                # Collect multi-line callout
+                callout_lines = [clean_text]
+                while i + 1 < len(lines) and lines[i + 1].startswith("> "):
+                    i += 1
+                    next_line = lines[i][2:].strip()
+                    _, next_clean = detect_callout_emoji(next_line)
+                    # If next line starts with a NEW emoji, it's a separate callout
+                    next_emoji, _ = detect_callout_emoji(next_line)
+                    if next_emoji and next_emoji != emoji:
+                        i -= 1
+                        break
+                    callout_lines.append(next_clean)
+                blocks.append({
+                    "object": "block", "type": "callout",
+                    "callout": {
+                        "rich_text": rich_text("\n".join(callout_lines)),
+                        "icon": {"type": "emoji", "emoji": emoji},
+                        "color": "default"
+                    }
+                })
+            else:
+                blocks.append({
+                    "object": "block", "type": "quote",
+                    "quote": {"rich_text": rich_text(quote_text)}
                 })
             i += 1
             continue
@@ -96,17 +174,39 @@ def md_to_blocks(content):
                 "object": "block", "type": "numbered_list_item",
                 "numbered_list_item": {"rich_text": rich_text(text)}
             })
-        # Table (convert to code block for simplicity)
+        # Table → Notion table block
         elif line.startswith("|"):
             table_lines = [line]
             i += 1
             while i < len(lines) and lines[i].startswith("|"):
                 table_lines.append(lines[i])
                 i += 1
-            blocks.append({
-                "object": "block", "type": "code",
-                "code": {"rich_text": rich_text("\n".join(table_lines)), "language": "plain text"}
-            })
+            # Parse table
+            rows = []
+            for tl in table_lines:
+                cells = [c.strip() for c in tl.strip("|").split("|")]
+                if cells and not all(set(c.strip()) <= {"-", ":"} for c in cells):
+                    rows.append(cells)
+            if rows:
+                width = max(len(r) for r in rows)
+                table_block = {
+                    "object": "block", "type": "table",
+                    "table": {
+                        "table_width": width,
+                        "has_column_header": True,
+                        "has_row_header": False,
+                        "children": []
+                    }
+                }
+                for row in rows[:100]:
+                    cells_padded = row + [""] * (width - len(row))
+                    table_block["table"]["children"].append({
+                        "type": "table_row",
+                        "table_row": {
+                            "cells": [[{"type": "text", "text": {"content": c[:2000]}}] for c in cells_padded]
+                        }
+                    })
+                blocks.append(table_block)
             continue
         # Divider
         elif line.strip() == "---":
